@@ -1,0 +1,19 @@
+# =============================================================================
+# Dockerfile.nginx
+# Role: Reverse proxy and single entry point for the entire application.
+# All traffic enters here. Nginx decides whether to route to frontend or backend.
+# This is also the container that will become your K8s Ingress controller config.
+# =============================================================================
+
+FROM nginx:1.25-alpine
+
+# Remove the default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy our routing config
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -qO- http://localhost/nginx-health || exit 1

@@ -1,0 +1,41 @@
+# =============================================================================
+# .gitignore
+# =============================================================================
+
+# ── Secrets — NEVER commit these ─────────────────────────────────────────────
+.env
+*.pem
+*.key
+terraform.tfvars
+*.tfstate
+*.tfstate.backup
+.terraform/
+.terraform.lock.hcl
+
+# ── IDE / OS files ────────────────────────────────────────────────────────────
+*.sublime-workspace
+*.sublime-project
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ── Docker build artifacts ────────────────────────────────────────────────────
+.dockerignore
+
+# ── Uploaded files (never commit user data) ───────────────────────────────────
+app/Backend/reportfile/*.pdf
+app/Backend/reportfile/*.rtf
+app/Frontend/imge/*.jpg
+app/Frontend/imge/*.jpeg
+app/Frontend/imge/*.png
+# Keep the placeholder files that ship with the repo
+!app/Frontend/imge/.gitkeep
+!app/Backend/reportfile/.gitkeep
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── Node / npm (if you add any tooling) ──────────────────────────────────────
+node_modules/
