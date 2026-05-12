@@ -50,6 +50,7 @@ if(!$_SESSION['id'])
 <script src="Patient_script.js"></script>
 <script src="Validate/patient.js"></script>
  
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#ffffff" onLoad="startTime()">
 <div id="apDiv1">

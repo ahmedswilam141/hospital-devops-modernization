@@ -148,6 +148,7 @@ a:link
 	border-radius: 50px;
 }
 </style>
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#FFFFFF">
 <div id="apDiv1">

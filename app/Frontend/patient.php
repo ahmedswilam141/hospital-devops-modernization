@@ -276,6 +276,7 @@ function validate() {
 	return true;
 }
 </script>
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#FFFFFF">
 <div id="apDiv1">

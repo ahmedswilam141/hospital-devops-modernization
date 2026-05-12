@@ -267,6 +267,7 @@ border-radius: 4px;
 }
 </style>
 <script src="signup_script.js"></script>
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#FFFFFF">
 <div id="apDiv1">

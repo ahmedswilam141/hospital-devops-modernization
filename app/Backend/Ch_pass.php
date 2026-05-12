@@ -79,6 +79,7 @@ box-shadow: 0 0 12px rgba(51, 204, 255, 1.0);
 
 </style>
 <script src="Admin_script.js"></script>
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#ffffff" onLoad="startTime()">
 <div id="apDiv1">

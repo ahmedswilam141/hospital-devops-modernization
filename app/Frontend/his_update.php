@@ -349,6 +349,7 @@ function hide1()
 	document.getElementById("apDiv16").style.visibility="hidden";
 }
 </script>
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#FFFFFF">
 <div id="apDiv1">

@@ -63,6 +63,7 @@ if(!$_SESSION['id'])
 
 <script src="Admin_script.js"></script>
  
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#ffffff" onLoad="startTime()">
 <div id="apDiv1">

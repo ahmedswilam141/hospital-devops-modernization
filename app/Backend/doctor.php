@@ -51,6 +51,7 @@ if(!$_SESSION['id'])
 <script src="doctor_script.js"></script>
 <script src="Validate/doctor.js"></script>
  
+<link rel="stylesheet" href="/assets/css/responsive-override.css">
 </head>
 <body vlink="#ffffff" onLoad="startTime()">
 <div id="apDiv1">
