@@ -5,10 +5,14 @@
 # Extras: mysqli (replaces removed mysql_*), redis (PHP session handler)
 # =============================================================================
 
-FROM php:8.1-apache
+FROM php:8.1-apache-bookworm
 
 # ── System dependencies ───────────────────────────────────────────────────────
-RUN apt-get update && apt-get install -y \
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' \
+        /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's|http://deb.debian.org|https://deb.debian.org|g' \
+        /etc/apt/sources.list 2>/dev/null || true \
+    && apt-get update && apt-get install -y \
         curl \
         libpng-dev \
         libjpeg-dev \
