@@ -1,0 +1,27 @@
+# =============================================================================
+# terraform/terraform.tfvars.example
+#
+# Copy this to terraform/terraform.tfvars and fill in real values.
+# terraform.tfvars is gitignored — never commit it.
+#
+# USAGE:
+#   cp terraform/terraform.tfvars.example terraform/terraform.tfvars
+#   # edit terraform.tfvars with real values
+#   terraform apply   # automatically reads terraform.tfvars
+# =============================================================================
+
+project_name = "hospital-devops"
+aws_region   = "us-east-1"
+environment  = "production"
+
+# Your public IP — find it with: curl https://checkip.amazonaws.com
+# Add /32 to make it a CIDR: e.g. "41.67.138.100/32"
+my_ip_cidr = "YOUR_PUBLIC_IP/32"
+
+# Database password — use something strong
+db_password = "ChangeMe123!Strong"
+
+# These can stay as defaults — override only if needed
+# eks_node_instance_type = "t3.small"
+# eks_node_desired_count = 2
+# db_instance_class      = "db.t3.micro"

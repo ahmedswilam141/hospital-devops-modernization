@@ -1,0 +1,227 @@
+/*
+ * responsive-override.css
+ * Safe version.
+ *
+ * Goal:
+ * - Improve the old UI visually.
+ * - Keep the original Dreamweaver layout mostly stable.
+ * - Avoid globally changing every apDiv from absolute to relative.
+ *
+ * This is safer for a legacy PHP project where the same apDiv IDs are reused
+ * differently across pages.
+ */
+
+/* Base */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+}
+
+body {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 100vh !important;
+    background: #111827 !important;
+    font-family: "Segoe UI", Arial, sans-serif !important;
+    overflow-x: auto;
+}
+
+/*
+ * Keep the original layout width stable.
+ * Do NOT force all children into normal document flow.
+ */
+#apDiv1 {
+    position: relative !important;
+    left: auto !important;
+    top: auto !important;
+    margin: 0 auto !important;
+    width: 1094px !important;
+    max-width: 1094px !important;
+    min-height: 100vh !important;
+    border-left: 1px solid #0891b2 !important;
+    border-right: 1px solid #0891b2 !important;
+    box-shadow: 0 0 30px rgba(0,0,0,0.35) !important;
+}
+
+/* Header */
+#apDiv2 {
+    background-color: #111827 !important;
+    border-bottom: 1px solid #0891b2 !important;
+    color: #ffffff !important;
+}
+
+/* Main title areas */
+#apDiv2,
+#apDiv3,
+#apDiv5 {
+    font-family: "Segoe UI", Arial, sans-serif !important;
+}
+
+#apDiv2 h1,
+#apDiv2 h2,
+#apDiv2 h3,
+#apDiv3,
+#apDiv5 {
+    color: #ffffff !important;
+    text-shadow: none !important;
+}
+
+/* Navigation */
+#apDiv6 {
+    background-color: #1f2937 !important;
+    border-bottom: 1px solid #0891b2 !important;
+}
+
+#apDiv6 table {
+    border-collapse: collapse !important;
+}
+
+#apDiv6 td,
+#apDiv6 div {
+    font-family: "Segoe UI", Arial, sans-serif !important;
+}
+
+#apDiv6 a,
+#apDiv6 a:visited {
+    color: #22d3ee !important;
+    text-decoration: none !important;
+    font-weight: 600 !important;
+}
+
+#apDiv6 a:hover {
+    color: #67e8f9 !important;
+    text-decoration: underline !important;
+}
+
+/* Text */
+p, td, div, span, label {
+    font-family: "Segoe UI", Arial, sans-serif;
+}
+
+/* Forms */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="number"],
+input[type="date"],
+input[type="time"],
+select,
+textarea {
+    background: rgba(255,255,255,0.10) !important;
+    border: 1px solid rgba(34,211,238,0.45) !important;
+    border-radius: 6px !important;
+    color: #ffffff !important;
+    padding: 8px 12px !important;
+    font-size: 14px !important;
+    font-family: "Segoe UI", Arial, sans-serif !important;
+    outline: none !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+    color: rgba(255,255,255,0.55) !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: #22d3ee !important;
+    background: rgba(255,255,255,0.15) !important;
+}
+
+/* Buttons */
+input[type="submit"],
+input[type="button"],
+button {
+    background: #0f8f9c !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 6px !important;
+    padding: 9px 22px !important;
+    font-size: 14px !important;
+    font-family: "Segoe UI", Arial, sans-serif !important;
+    cursor: pointer !important;
+    transition: background 0.2s ease, transform 0.1s ease !important;
+}
+
+input[type="submit"]:hover,
+input[type="button"]:hover,
+button:hover {
+    background: #14b8c6 !important;
+}
+
+input[type="submit"]:active,
+input[type="button"]:active,
+button:active {
+    transform: translateY(1px) !important;
+}
+
+input[type="reset"] {
+    background: rgba(255,255,255,0.12) !important;
+    color: #e5e7eb !important;
+    border: 1px solid rgba(255,255,255,0.2) !important;
+}
+
+/* Links */
+a,
+a:visited {
+    color: #0891b2 !important;
+}
+
+a:hover {
+    color: #06b6d4 !important;
+}
+
+/* Images */
+img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Panels / boxes without changing their position */
+#apDiv7,
+#apDiv8,
+#apDiv9,
+#apDiv10,
+#apDiv11,
+#apDiv12,
+#apDiv13,
+#apDiv14,
+#apDiv15,
+#apDiv16 {
+    box-shadow: 0 8px 18px rgba(0,0,0,0.25);
+}
+
+/*
+ * Important:
+ * We intentionally do NOT globally change these elements to:
+ * position: relative;
+ * float: left;
+ * float: right;
+ * display: flex;
+ *
+ * That caused footer/content/order problems.
+ */
+
+/* Make large screens look centered */
+@media (min-width: 1200px) {
+    #apDiv1 {
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
+}
+
+/* Small screens: keep the old layout usable with horizontal scroll */
+@media (max-width: 1094px) {
+    body {
+        overflow-x: auto !important;
+    }
+
+    #apDiv1 {
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+}

@@ -1,0 +1,307 @@
+# =============================================================================
+# docker-compose.yml
+# Hospital Management System — Local Development Environment
+#
+# SERVICES (5 containers, 1 network, 3 named volumes):
+#
+#   nginx      → Reverse proxy. The ONLY container with a published port (80).
+#                Routes /admin/* to backend, everything else to frontend.
+#
+#   frontend   → PHP 8.1 Apache. Serves the patient and doctor portal.
+#                No published port — only reachable via nginx internally.
+#
+#   backend    → PHP 8.1 Apache. Serves the admin panel.
+#                No published port — only reachable via nginx at /admin/*.
+#
+#   mysql      → MySQL 8.0. Equivalent of RDS in production.
+#                schema.sql is auto-run on first startup.
+#
+#   redis      → Redis 7. Stores PHP sessions for BOTH frontend and backend.
+#                Solves the multi-pod session problem before you hit K8s.
+#
+# VOLUMES (3 named volumes):
+#
+#   mysql_data     → Persists MySQL data across container restarts
+#   shared_uploads → CRITICAL: shared between frontend AND backend containers
+#                    Frontend writes patient photos to imge/
+#                    Backend reads/writes doctor photos to imge/ (same dir)
+#                    Backend writes PDFs to reportfile/
+#                    Frontend reads PDFs for download links
+#                    Without this shared volume, cross-container file access breaks.
+#   redis_data     → Persists Redis data (sessions survive container restarts)
+#
+# HOW TO RUN:
+#   cp .env.example .env          # fill in your values
+#   docker-compose up --build     # first run (builds images)
+#   docker-compose up -d          # subsequent runs (detached)
+#   docker-compose down           # stop everything
+#   docker-compose down -v        # stop + delete volumes (fresh start)
+#
+# VERIFY:
+#   docker-compose ps             # all containers should show "healthy"
+#   curl http://localhost/health.php          # frontend health
+#   curl http://localhost/admin/health.php    # backend health
+#   curl http://localhost/nginx-health        # nginx health
+# =============================================================================
+
+services:
+
+  # ============================================================================
+  # NGINX — Reverse Proxy (single entry point)
+  # ============================================================================
+  nginx:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.nginx
+    container_name: hospital-nginx
+    ports:
+      - "80:80"       # The ONLY published port in this entire stack
+                      # In K8s: replaced by a LoadBalancer Service + Ingress
+    depends_on:
+      frontend:
+        condition: service_healthy   # don't start until PHP is ready
+      backend:
+        condition: service_healthy
+    networks:
+      - hospital-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost/health.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # FRONTEND — Patient Portal + Doctor Portal (PHP 8.1 + Apache)
+  # ============================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    container_name: hospital-frontend
+    # No 'ports' here — nginx proxies to this container internally.
+    # Keeping this off the host network is a security improvement over
+    # the original app which ran everything on localhost with no isolation.
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Database — matches MySQL service credentials below
+      DB_HOST: mysql
+      DB_USER: ${DB_USER:-hospital_user}
+      DB_PASS: ${DB_PASS:-hospital_pass}
+      DB_NAME: ${DB_NAME:-hospital}
+
+      # Redis — PHP sessions are stored here (not on container disk)
+      REDIS_HOST: redis
+
+      # Application environment
+      APP_ENV: ${APP_ENV:-development}
+
+    volumes:
+      # Shared upload volume — frontend reads photos and report download links
+      # written by backend. Without this, report_download.php returns 404s.
+      - shared_uploads:/var/www/html/imge              # patient/doctor profile photos
+      - shared_uploads:/var/www/html/../Backend/reportfile  # report PDFs for download
+
+      # In development only: mount app code for live editing without rebuilds.
+      # REMOVE these bind mounts for production builds — use COPY in Dockerfile.
+      # Uncomment to enable hot reload during development:
+      # - ./app/Frontend:/var/www/html
+
+    networks:
+      - hospital-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost/health.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s   # Give PHP + Redis extension time to initialize
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # BACKEND — Admin Portal (PHP 8.1 + Apache)
+  # ============================================================================
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    container_name: hospital-backend
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DB_HOST: mysql
+      DB_USER: ${DB_USER:-hospital_user}
+      DB_PASS: ${DB_PASS:-hospital_pass}
+      DB_NAME: ${DB_NAME:-hospital}
+      REDIS_HOST: redis
+      APP_ENV: ${APP_ENV:-development}
+
+    volumes:
+      # CRITICAL: same named volume as frontend.
+      # When admin uploads a doctor photo, it writes to /var/www/html/imge/
+      # which is this volume. Frontend reads from the same volume.
+      # This is how two separate containers share files in Docker.
+      # In K8s: replaced by an EFS PersistentVolume or S3.
+      - shared_uploads:/var/www/html/imge              # profile photos (shared w/ frontend)
+      - shared_uploads:/var/www/html/reportfile         # PDF reports (backend writes here)
+
+      # Development live reload (optional):
+      # - ./app/Backend:/var/www/html
+
+    networks:
+      - hospital-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost/health.php"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # MYSQL — Relational Database (equivalent of AWS RDS in production)
+  # ============================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: hospital-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${DB_NAME:-hospital}
+      MYSQL_USER: ${DB_USER:-hospital_user}
+      MYSQL_PASSWORD: ${DB_PASS:-hospital_pass}
+
+    volumes:
+      # Persist data across container restarts — without this, every
+      # docker-compose down wipes the database
+      - mysql_data:/var/lib/mysql
+
+      # schema.sql is auto-executed by MySQL on first startup
+      # (only when mysql_data volume is empty — i.e., fresh install)
+      - ./scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+    ports:
+      # Expose MySQL to host for local debugging with tools like TablePlus/DBeaver.
+      # In production (K8s + RDS): remove this entirely — DB is in private subnet,
+      # not reachable from outside the VPC at all.
+      - "3306:3306"
+
+    networks:
+      - hospital-net
+    restart: unless-stopped
+    healthcheck:
+      # mysqladmin ping is the standard MySQL health check used by AWS RDS too
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost",
+             "-u", "${DB_USER:-hospital_user}",
+             "-p${DB_PASS:-hospital_pass}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10          # MySQL takes ~30s to initialize on first run
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================================================
+  # REDIS — Session Store (equivalent of AWS ElastiCache in production)
+  # ============================================================================
+  redis:
+    image: redis:7-alpine      # Alpine = smaller image, same functionality
+    container_name: hospital-redis
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+      --appendfilename "hospital-sessions.aof"
+
+    # maxmemory: caps Redis RAM usage — prevents runaway memory on small instances
+    # allkeys-lru: when full, evict the least-recently-used session first
+    # appendonly: persist sessions to disk (redis_data volume) — sessions survive
+    #             a Redis container restart without logging everyone out
+
+    volumes:
+      - redis_data:/data
+
+    # Redis does NOT need a published port. Only frontend and backend containers
+    # need to reach it, and they do so via the hospital-net network by service name.
+    # Exposing Redis to the host is a security risk — don't do it in production.
+
+    networks:
+      - hospital-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  hospital-net:
+    driver: bridge
+    # All 5 containers are on this network. They communicate by service name
+    # (e.g. frontend connects to "mysql", "redis"). Only nginx has a port
+    # published to the host. This isolates the stack — nothing inside is
+    # reachable from outside except through nginx on port 80.
+
+# ==============================================================================
+# VOLUMES
+# ==============================================================================
+volumes:
+  mysql_data:
+    # Persists MySQL data. Delete this volume for a completely clean database:
+    #   docker-compose down -v
+
+  redis_data:
+    # Persists Redis AOF log. Sessions survive Redis restarts.
+
+  shared_uploads:
+    # CRITICAL SHARED VOLUME — both frontend and backend mount this.
+    #
+    # Directory layout inside this volume:
+    #   /                     (volume root)
+    #   ├── patient_photo.jpg  (written by Frontend/signup_com.php)
+    #   ├── doctor_photo.jpg   (written by Backend/doctor_reg.php)
+    #   └── ...
+    #
+    # And separately for reports:
+    #   /                     (same volume, mounted at reportfile/ in backend)
+    #   ├── report_1.pdf      (written by Backend/report_upload.php)
+    #   └── ...
+    #
+    # In K8s: this volume is replaced by:
+    #   - AWS EFS PersistentVolume (for shared file access across pods), OR
+    #   - S3 uploads (change move_uploaded_file() to AWS SDK PutObject)
+    #   S3 is the production-correct approach and what you'll implement in Week 2.
