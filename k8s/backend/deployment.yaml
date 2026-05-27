@@ -1,0 +1,123 @@
+# =============================================================================
+# k8s/backend/deployment.yaml
+#
+# WHAT THIS IS:
+#   Deployment for the admin portal (Backend).
+#   Identical structure to the frontend deployment — same probes, same resource
+#   limits, same credential injection pattern.
+#
+# KEY DIFFERENCE FROM FRONTEND:
+#   - Only 1 replica by default (admin panel has far less traffic than patient portal)
+#   - Health check hits /health.php (which also checks the reportfile directory)
+#   - This is the pod that calls S3 to upload PDF reports
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: hospital
+  labels:
+    app: backend
+    component: admin-portal
+spec:
+  replicas: 1   # admin panel — one instance is sufficient
+
+  selector:
+    matchLabels:
+      app: backend
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+
+  template:
+    metadata:
+      labels:
+        app: backend
+        component: admin-portal
+
+    spec:
+      serviceAccountName: hospital-service-account
+
+      containers:
+        - name: backend
+          image: 092304626836.dkr.ecr.us-east-1.amazonaws.com/hospital-devops-backend:latest
+          imagePullPolicy: Always
+
+          ports:
+            - containerPort: 80
+              name: http
+
+          envFrom:
+            - configMapRef:
+                name: backend-config
+            - secretRef:
+                name: db-credentials
+
+          livenessProbe:
+            httpGet:
+              path: /health.php
+              port: 80
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health.php
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+---
+# =============================================================================
+# k8s/backend/configmap.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: hospital
+data:
+  DB_HOST:    "hospital-devops-mysql.c2vc2meieh1k.us-east-1.rds.amazonaws.com"
+  DB_NAME:    "hospital"
+  REDIS_HOST: "hospital-devops-redis.6tqx1p.0001.use1.cache.amazonaws.com"
+  REDIS_PORT: "6379"
+  S3_BUCKET:  "hospital-devops-reports-24135e6e"
+  AWS_REGION: "us-east-1"
+  APP_ENV:    "production"
+
+---
+# =============================================================================
+# k8s/backend/service.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: hospital
+  labels:
+    app: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+    - port: 80
+      targetPort: 80
+      protocol: TCP
+      name: http

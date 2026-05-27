@@ -1,213 +1,123 @@
 <?php
+// =============================================================================
+// app/Backend/report_upload.php — S3 VERSION
+//
+// WHAT CHANGED FROM THE ORIGINAL:
+//   Original: move_uploaded_file() writes the PDF to reportfile/ on the container's
+//             local filesystem. In K8s, each pod has its own filesystem — the file
+//             would exist only on the pod that received the upload request. When
+//             nginx routes the next request to a different pod, the file is gone.
+//
+//   New:      Uploads the PDF to S3. S3 is centralized — every pod reads from
+//             the same bucket. This is the correct solution for containerized
+//             file uploads.
+//
+// DEPENDENCIES:
+//   The AWS SDK for PHP must be installed in the Docker image.
+//   Add to docker/Dockerfile.backend:
+//     RUN curl -sS https://getcomposer.org/installer | php && \
+//         php composer.phar require aws/aws-sdk-php && \
+//         rm composer.phar
+//
+// CREDENTIALS:
+//   No hardcoded keys. The SDK reads credentials from the EC2 instance
+//   metadata service (IMDS) — EKS node IAM role provides them automatically.
+//   This works because the S3 IAM policy is attached to the EKS node role
+//   in Terraform modules/s3/main.tf.
+//
+// ENVIRONMENT VARIABLES (from K8s ConfigMap):
+//   S3_BUCKET  — the bucket name (e.g. hospital-devops-reports-abc123)
+//   AWS_REGION — the AWS region (e.g. us-east-1)
+// =============================================================================
+
 session_start();
-if(!$_SESSION['id'])
-{
-	header("Location:index.html");
+if (!$_SESSION['id']) {
+    header("Location:index.html");
+    exit;
+}
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
+
+include("connection.php");
+
+// ============================================================================
+// VALIDATE INPUTS
+// ============================================================================
+
+$pid   = $_POST['email']  ?? '';
+$date1 = $_POST['date']   ?? '';
+$time  = $_POST['time']   ?? '';
+
+if (empty($pid) || empty($date1) || empty($time)) {
+    die("<b>Error: Missing required fields.</b>");
+}
+
+if (!isset($_FILES['reportfile']) || $_FILES['reportfile']['error'] !== UPLOAD_ERR_OK) {
+    die("<b>Error: No file uploaded or upload failed.</b>");
+}
+
+// ============================================================================
+// GENERATE REPORT ID (same logic as original)
+// ============================================================================
+
+$count = 0;
+$r = mysqli_query($con, "SELECT * FROM report WHERE date='$date1' AND patientID='$pid'");
+while ($row = mysqli_fetch_row($r)) {
+    $count++;
+}
+$count++;
+$rid = "Report no." . $count;
+
+// ============================================================================
+// UPLOAD TO S3
+//
+// S3 key structure: reports/<patient_id>/<filename>
+// This organises reports by patient in the bucket.
+// ============================================================================
+
+$originalName = basename($_FILES['reportfile']['name']);
+$s3Key        = "reports/{$pid}/{$originalName}";
+$tmpPath      = $_FILES['reportfile']['tmp_name'];
+$s3Bucket     = getenv('S3_BUCKET');
+$awsRegion    = getenv('AWS_REGION') ?: 'us-east-1';
+
+try {
+    // SDK instantiated without credentials — uses IAM role from instance metadata
+    $s3 = new S3Client([
+        'version' => 'latest',
+        'region'  => $awsRegion,
+    ]);
+
+    $s3->putObject([
+        'Bucket'      => $s3Bucket,
+        'Key'         => $s3Key,
+        'SourceFile'  => $tmpPath,
+        'ContentType' => $_FILES['reportfile']['type'] ?: 'application/pdf',
+    ]);
+
+    // Store the S3 key in the database (not just the filename)
+    // This lets report_download.php generate a pre-signed URL for download
+    $docfile = $s3Key;
+
+} catch (AwsException $e) {
+    error_log("S3 upload failed: " . $e->getMessage());
+    die("<b>Error: File upload to storage failed. Please try again.</b>");
+}
+
+// ============================================================================
+// INSERT RECORD INTO DATABASE
+// ============================================================================
+
+$qry    = "INSERT INTO report VALUES('$rid','$pid','$date1','$time','$docfile')";
+$result = mysqli_query($con, $qry);
+
+if ($result) {
+    print "<b>File Uploaded Successfully</b>&nbsp;" . htmlspecialchars($rid);
+} else {
+    error_log("DB insert failed: " . mysqli_error($con));
+    print mysqli_error($con);
 }
 ?>
-<html>
-<head>
-<title>Patient|Report</title>
-<link rel="stylesheet" href="Style/report_style.css"/>
-<style type="text/css">
-#apDiv14 {
-	position: absolute;
-	width: 148px;
-	height: 32px;
-	z-index: 6;
-	left: 947px;
-	top: 85px;
-	font-family: courier, monospace;
-	text-align: center;
-	color: white;
-	font-size: 20px;
-}
-#apDiv15 {
-	position: absolute;
-	width: 427px;
-	height: 281px;
-	z-index: 1;
-	left: 301px;
-	top: 273px;
-	background: #f6f1d3;
-	background: radial-gradient(#f6f1d3, #648880, #293f50);
-	border: 2px solid #033;
-	font-weight: bold;
-}
-#apDiv16 {
-	position: absolute;
-	width: 486px;
-	height: 53px;
-	z-index: 8;
-	left: 309px;
-	top: 351px;
-	font-size: 24px;
-	background: #f6f1d3;
-	background: radial-gradient(#f6f1d3, #648880, #293f50);
-	border: 2px solid #033;
-}
-#apDiv1 #apDiv15 form table {
-	font-weight: bold;
-}
-#apDiv1 #apDiv16 div {
-	font-weight: bold;
-}
-</style>
-
-<script src="report_script.js"></script>
-<link rel="stylesheet" href="/assets/css/responsive-override.css">
-</head>
-<body vlink="#ffffff" onLoad="startTime()">
-<div id="apDiv1">
-  <div id="apDiv2">
-    <div id="apDiv3">
-      <div align="left">Hospital Management System</div>
-    </div>
-    <div id="apDiv4"></div>
-  </div>
-  <div id="apDiv5">
-    <table width="1095" height="59" border="0">
-      <tr>
-        <td width="177"><div id="ap5" style="text-align:justify;"><a href="Admin.php">Home</a></div></td>
-        <td width="168" onMouseOver="show_course()" onMouseOut="hide_course()"><div align="left"><a href="#">Add</a></div></td> 	
-        <td width="173"onmouseover="show()" onMouseOut="hide()"><div align="left"><a href="#">Modify</a></div></td>
-        <td width="186"onMouseOver="show1()" onMouseOut="hide1()"><div align="left"><a href="#">Upload</a></div></td>
-        <td width="204"onMouseOver="show2()" onMouseOut="hide2()"><div align="left"><a href="#">View</a></div></td>
-        <td width="161"onMouseOver="show3()" onMouseOut="hide3()"><div style="text-align:justify;"><a href="#">Profile</a></div></td>
-      </tr>
-    </table>
-  </div>
-  <div id="apDiv8" onMouseOver="show_course()" onMouseOut="hide_course()">
-    <table width="159" height="70" border="0">
-      <tr>
-        <td><div align="center"></div></td>
-      </tr>
-      <tr>
-        <td><div align="center"></div></td>
-      </tr>
-      <tr>
-        <td><div align="left"><a href="doctor.php">Doctor</a></div></td>
-      </tr>
-      <tr>
-        <td><div align="left"><a href="patient.php">Patient</a></div></td>
-      </tr>
-    </table>
-  </div>
-  <div id="apDiv9" onMouseOver="show()" onMouseOut="hide()">
-  <table width="170" height="70" border="0">
-      <tr>
-        <td><div align="center"></div></td>
-      </tr>
-      <tr>
-        <td><div align="center"></div></td>
-      </tr>
-      <tr>
-        <td><div align="left"><a href="doctor_mod.php">Doctor</a></div></td>
-      </tr>
-      <tr>
-        <td><div align="left"><a href="patient_mod.php">Patient</a></div></td>
-      </tr>
-    </table>
-  </div>
-  <div id="apDiv10" onMouseOver="show1()" onMouseOut="hide1()">
-    <table width="165" height="34" border="0">
-      <tr>
-        <td><div align="left"><a href="report.php">Patient Report</a></div></td>
-      </tr>
-    </table>
-  </div>
-  <div id="apDiv11" onMouseOver="show2()" onMouseOut="hide2()">
-    <table width="181" border="0">
-      <tr>
-        <td height="32"><div align="left"><a href="doctor_view.php">Doctor</a></div></td>
-      </tr>
-      <tr>
-        <td height="32"><div align="left"><a href="patient_view.php">Patient</a></div></td>
-      </tr>
-      <tr>
-        <td height="32"><div align="left"><a href="appointment.php">Appointment</a></div></td>
-      </tr>
-      <tr>
-        <td height="32"><div align="left"><a href="history.php">Patient History</a></div></td>
-      </tr>
-    </table>
-  </div>
-  <div id="apDiv12">
-    <div align="center"><a href="Logout.php">Sign out</a></div>
-  </div>
-  <div id="apDiv14">
- <script>
- 	var meridiem = "AM";
-	if (hours > 12) {
-    	hours = hours - 12;
-    	meridiem = "PM";
-	}
-	if (hours === 0) {
-    	hours = 12;    
-	}
-	
-    function startTime() {
-    	var today=new Date();
-    	var h=today.getHours();
-    	var m=today.getMinutes();
-    	var s=today.getSeconds();
-   	 	m = checkTime(m);
-    	s = checkTime(s);
-    	document.getElementById('apDiv14').innerHTML = h+":"+m+":"+s+" "+meridiem;
-    	var t = setTimeout(function(){startTime()},500);
-	}
-
-function checkTime(i) {
-    if (i<10) {i = "0" + i}; 
-    return i;
-}
-</script>
-
-  </div>
-  <div id="apDiv16">
-    <div align="center">
-    <?php
-	include("connection.php");
-	$pid=$_POST['email'];
-	//$rid=$_POST['report'];
-	$date1=$_POST['date'];
-	$time=$_POST['time'];
-	$count=0;
-	$r=mysqli_query($con, "select * from report where date='$date1' and patientID='$pid'");
-	while($row=mysqli_fetch_row($r))
-	{
-		$count++;
-	}
-	$count++;
-	$rid="Report no.".$count;
-	move_uploaded_file($_FILES['reportfile']['tmp_name'],"reportfile/{$_FILES['reportfile']['name']}");
-	$docfile="{$_FILES['reportfile']['name']}";
-	$qry="insert into report values('$rid','$pid','$date1','$time','$docfile')";
-	$result=mysqli_query($con, $qry);
-	
-	if($result)
-	{
-		print "<b>File Uploaded Successfully</b>&nbsp;".$rid;
-	}
-	else
-	{
-		print mysqli_error($con);
-	}
-	?>
-    </div>
-  </div>
-</div>
-<div id="apDiv13" onMouseOver="show3()" onMouseOut
-="hide3()">
-  <table width="156" height="71" border="0">
-    <tr>
-      <td width="131" height="31"><div align="left"><a href="profile.php">View Profile</a></div></td>
-    </tr>
-    <tr>
-      <td width="131" height="34">
-      <div align="left"><a href="Ch_pass.php">Change Password</a></div></td>
-    </tr>
-  </table>
-</div>
-</body>
-</html>

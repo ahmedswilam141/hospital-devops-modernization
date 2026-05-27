@@ -1,0 +1,132 @@
+# =============================================================================
+# k8s/frontend/deployment.yaml
+#
+# WHAT THIS IS:
+#   The Kubernetes Deployment for the frontend (patient + doctor portal).
+#   A Deployment says: "keep 2 replicas of this pod running at all times.
+#   If one crashes, restart it. If I update the image, roll it out one pod at a time."
+#
+# KEY FIELDS EXPLAINED:
+#
+#   replicas: 2
+#     Two pods = two copies of the frontend running simultaneously.
+#     If one pod crashes, the other handles traffic while K8s restarts it.
+#     Sessions are in Redis so users don't notice the failover.
+#
+#   strategy: RollingUpdate
+#     When you push a new image, K8s starts a new pod BEFORE killing the old one.
+#     maxUnavailable: 0 → zero downtime during deployments
+#     maxSurge: 1 → briefly runs 3 pods during the rollout
+#
+#   resources (requests/limits):
+#     requests → guaranteed resources. K8s won't schedule this pod on a node
+#                that can't provide at least 100m CPU and 128Mi RAM.
+#     limits   → hard cap. Pod is killed (OOMKilled) if it exceeds 256Mi RAM.
+#     Without these: a runaway pod can starve other pods on the same node.
+#
+#   livenessProbe:
+#     Calls /health.php every 30 seconds. If it fails 3 times, K8s kills and
+#     restarts the pod. This is how K8s self-heals without human intervention.
+#     The health.php you wrote in Phase 1 is why this works.
+#
+#   readinessProbe:
+#     Calls /health.php before sending traffic. If it fails, K8s removes this
+#     pod from the Service's endpoint list — traffic stops going to it.
+#     Difference from liveness: readiness = "can serve traffic"; liveness = "is alive"
+#
+#   envFrom.configMapRef → injects all keys from frontend-config as env vars
+#   envFrom.secretRef   → injects DB_USER and DB_PASS from db-credentials Secret
+#
+# =============================================================================
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: hospital
+  labels:
+    app: frontend
+    component: patient-doctor-portal
+spec:
+  replicas: 2
+
+  selector:
+    matchLabels:
+      app: frontend
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0   # never have fewer than 2 pods during rollout
+      maxSurge: 1         # briefly allow 3 pods during rollout
+
+  template:
+    metadata:
+      labels:
+        app: frontend
+        component: patient-doctor-portal
+
+    spec:
+      serviceAccountName: hospital-service-account
+
+      containers:
+        - name: frontend
+          # Replace 092304626836 with your AWS account ID (from terraform output)
+          image: 092304626836.dkr.ecr.us-east-1.amazonaws.com/hospital-devops-frontend:latest
+          imagePullPolicy: Always   # always pull — ensures :latest is fresh
+
+          ports:
+            - containerPort: 80
+              name: http
+
+          # Inject non-sensitive config from ConfigMap
+          envFrom:
+            - configMapRef:
+                name: frontend-config
+            - secretRef:
+                name: db-credentials   # injects DB_USER, DB_PASS, DB_HOST from Secrets Manager
+
+          # LIVENESS PROBE — is the container alive?
+          # Uses the health.php you built in Phase 1.
+          # If this fails 3x consecutively, K8s kills and restarts the pod.
+          livenessProbe:
+            httpGet:
+              path: /health.php
+              port: 80
+            initialDelaySeconds: 30   # wait 30s after container start (PHP init time)
+            periodSeconds: 30
+            failureThreshold: 3
+
+          # READINESS PROBE — is the container ready to receive traffic?
+          # More aggressive than liveness: faster check, sooner start.
+          # Pod is removed from Service if this fails.
+          readinessProbe:
+            httpGet:
+              path: /health.php
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+
+          # RESOURCE CONSTRAINTS
+          resources:
+            requests:
+              cpu: "100m"      # 0.1 CPU core guaranteed
+              memory: "128Mi"  # 128 MB RAM guaranteed
+            limits:
+              cpu: "500m"      # 0.5 CPU core maximum
+              memory: "256Mi"  # 256 MB RAM maximum — pod killed if exceeded
+
+      # Spread pods across different nodes (if possible)
+      # This ensures one node failure doesn't take down all frontend pods
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values: [frontend]
+                topologyKey: kubernetes.io/hostname

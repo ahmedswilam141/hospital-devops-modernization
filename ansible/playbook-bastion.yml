@@ -1,0 +1,241 @@
+---
+# =============================================================================
+# ansible/playbook-bastion.yml
+#
+# WHAT THIS DOES:
+#   Configures the bastion EC2 instance after Terraform creates it.
+#   Installs the tools needed to manage the Kubernetes cluster and
+#   connect to RDS for database migration.
+#
+# WHY ANSIBLE AND NOT JUST USER_DATA:
+#   Terraform's user_data runs once at instance creation and can't be
+#   updated without replacing the instance. Ansible is idempotent — you
+#   can run it again after the instance exists to add new tools or change
+#   configuration. This is the correct separation:
+#   Terraform = what infrastructure exists
+#   Ansible   = how that infrastructure is configured
+#
+# RUN WITH:
+#   ansible-playbook -i ansible/inventory.ini ansible/playbook-bastion.yml
+#
+# VERIFY:
+#   ansible -i ansible/inventory.ini bastion -m command -a "kubectl version --client"
+#   ansible -i ansible/inventory.ini bastion -m command -a "aws --version"
+# =============================================================================
+
+- name: Configure Hospital DevOps Bastion Host
+  hosts: bastion
+  become: yes   # sudo for package installation
+  vars:
+    kubectl_version: "1.29.0"
+    aws_cli_version: "2"
+
+  tasks:
+
+    # =========================================================================
+    # SYSTEM UPDATE
+    # =========================================================================
+
+    - name: Update all packages
+      yum:
+        name: "*"
+        state: latest
+      tags: [system]
+
+    - name: Install essential tools
+      yum:
+        name:
+          - curl
+          - wget
+          - unzip
+          - git
+          - jq          # JSON processor — used to parse AWS CLI output
+          - mysql       # MySQL client for running migrations against RDS
+          - htop        # Process monitor
+        state: present
+      tags: [system]
+
+    # =========================================================================
+    # AWS CLI v2
+    # Needed to authenticate to EKS and interact with AWS services from bastion
+    # =========================================================================
+
+    - name: Download AWS CLI v2
+      get_url:
+        url: https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip
+        dest: /tmp/awscliv2.zip
+      tags: [aws-cli]
+
+    - name: Unzip AWS CLI installer
+      unarchive:
+        src: /tmp/awscliv2.zip
+        dest: /tmp/
+        remote_src: yes
+      tags: [aws-cli]
+
+    - name: Install AWS CLI v2
+      command: /tmp/aws/install --update
+      args:
+        creates: /usr/local/bin/aws
+      tags: [aws-cli]
+
+    - name: Verify AWS CLI
+      command: aws --version
+      register: aws_version
+      tags: [aws-cli]
+
+    - name: Print AWS CLI version
+      debug:
+        msg: "{{ aws_version.stdout }}"
+      tags: [aws-cli]
+
+    # =========================================================================
+    # KUBECTL
+    # The K8s CLI — used to interact with the EKS cluster from the bastion.
+    # After running aws eks update-kubeconfig, you can run kubectl commands here.
+    # =========================================================================
+
+    - name: Download kubectl
+      get_url:
+        url: "https://dl.k8s.io/release/v{{ kubectl_version }}/bin/linux/amd64/kubectl"
+        dest: /usr/local/bin/kubectl
+        mode: "0755"
+      tags: [kubectl]
+
+    - name: Verify kubectl
+      command: kubectl version --client
+      register: kubectl_version_output
+      tags: [kubectl]
+
+    - name: Print kubectl version
+      debug:
+        msg: "{{ kubectl_version_output.stdout }}"
+      tags: [kubectl]
+
+    # =========================================================================
+    # HELM
+    # Kubernetes package manager — used in Phase 4 to install Prometheus,
+    # Grafana, Loki, and External Secrets Operator via Helm charts.
+    # Install it now so the bastion is ready for Phase 4.
+    # =========================================================================
+
+    - name: Download Helm installer
+      get_url:
+        url: https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+        dest: /tmp/get-helm.sh
+        mode: "0700"
+      tags: [helm]
+
+    - name: Install Helm
+      command: /tmp/get-helm.sh
+      args:
+        creates: /usr/local/bin/helm
+      tags: [helm]
+
+    - name: Verify Helm
+      command: helm version
+      register: helm_version_output
+      tags: [helm]
+
+    - name: Print Helm version
+      debug:
+        msg: "{{ helm_version_output.stdout }}"
+      tags: [helm]
+
+    # =========================================================================
+    # NODE EXPORTER (Prometheus)
+    # Exposes EC2 bastion host metrics (CPU, memory, disk) to Prometheus.
+    # In Phase 4, Prometheus scrapes this endpoint to monitor the bastion.
+    # =========================================================================
+
+    - name: Create node_exporter user
+      user:
+        name: node_exporter
+        system: yes
+        shell: /sbin/nologin
+        create_home: no
+      tags: [monitoring]
+
+    - name: Download node_exporter
+      get_url:
+        url: https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz
+        dest: /tmp/node_exporter.tar.gz
+      tags: [monitoring]
+
+    - name: Extract node_exporter
+      unarchive:
+        src: /tmp/node_exporter.tar.gz
+        dest: /tmp/
+        remote_src: yes
+      tags: [monitoring]
+
+    - name: Install node_exporter binary
+      copy:
+        src: /tmp/node_exporter-1.7.0.linux-amd64/node_exporter
+        dest: /usr/local/bin/node_exporter
+        mode: "0755"
+        remote_src: yes
+      tags: [monitoring]
+
+    - name: Create node_exporter systemd service
+      copy:
+        dest: /etc/systemd/system/node_exporter.service
+        content: |
+          [Unit]
+          Description=Prometheus Node Exporter
+          After=network.target
+
+          [Service]
+          User=node_exporter
+          ExecStart=/usr/local/bin/node_exporter
+          Restart=always
+
+          [Install]
+          WantedBy=multi-user.target
+      tags: [monitoring]
+
+    - name: Enable and start node_exporter
+      systemd:
+        name: node_exporter
+        enabled: yes
+        state: started
+        daemon_reload: yes
+      tags: [monitoring]
+
+    # =========================================================================
+    # CONFIGURE KUBECONFIG
+    # Connects this bastion to the EKS cluster.
+    # After this runs, kubectl commands work from the bastion.
+    # =========================================================================
+
+    - name: Configure EKS kubeconfig for ec2-user
+      become_user: ec2-user
+      shell: |
+        aws eks update-kubeconfig \
+          --name hospital-devops-cluster \
+          --region us-east-1
+      environment:
+        HOME: /home/ec2-user
+      tags: [kubeconfig]
+
+    # =========================================================================
+    # SUMMARY
+    # =========================================================================
+
+    - name: Print bastion configuration summary
+      debug:
+        msg: |
+          ✅ Bastion configuration complete.
+
+          Tools installed:
+            - AWS CLI v2
+            - kubectl v{{ kubectl_version }}
+            - Helm 3
+            - Node Exporter (Prometheus metrics on :9100)
+            - MySQL client (for RDS migrations)
+
+          Next steps:
+            ssh -i ~/.ssh/hospital-key.pem ec2-user@{{ inventory_hostname }}
+            kubectl get nodes   # verify EKS connection
+            kubectl get pods -n hospital   # check pod status
+      tags: [always]

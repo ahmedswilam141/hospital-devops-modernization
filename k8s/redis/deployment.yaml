@@ -1,0 +1,109 @@
+# =============================================================================
+# k8s/redis/deployment.yaml
+#
+# WHAT THIS IS:
+#   An in-cluster Redis StatefulSet.
+#   NOTE: You are using AWS ElastiCache (provisioned by Terraform) as your
+#   production Redis. This manifest exists as a fallback for local testing
+#   or if you want to verify K8s connectivity before ElastiCache is ready.
+#
+#   In production, your frontend and backend pods point to ElastiCache
+#   (via REDIS_HOST in the ConfigMap). This in-cluster Redis is not used.
+#   Leave this file here — it's useful for demonstrating StatefulSets.
+#
+# WHY STATEFULSET FOR REDIS:
+#   A Deployment gives pods random names (redis-abc123). A StatefulSet gives
+#   stable, predictable names (redis-0, redis-1). For Redis, this matters
+#   because Redis Sentinel and Cluster modes use hostnames for replication.
+#   For a single Redis instance, it's technically unnecessary — but it's
+#   the correct pattern and shows you know the difference.
+# =============================================================================
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: hospital
+  labels:
+    app: redis
+spec:
+  serviceName: redis
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: redis
+
+  template:
+    metadata:
+      labels:
+        app: redis
+
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --maxmemory
+            - "128mb"
+            - --maxmemory-policy
+            - allkeys-lru
+            - --appendonly
+            - "yes"
+
+          ports:
+            - containerPort: 6379
+              name: redis
+
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "192Mi"
+
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+        # Uses EKS default StorageClass (gp2 EBS volume)
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: hospital
+  labels:
+    app: redis
+spec:
+  type: ClusterIP
+  clusterIP: None   # Headless service — StatefulSet pods get stable DNS names
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis

@@ -1,0 +1,48 @@
+# =============================================================================
+# k8s/frontend/configmap.yaml
+#
+# WHAT THIS IS:
+#   Non-sensitive configuration for the frontend pods.
+#   Database hostnames, Redis hostname, S3 bucket name, environment name.
+#   These are NOT secrets — no passwords here.
+#   Passwords come from the ExternalSecret (db-credentials K8s Secret).
+#
+# WHY CONFIGMAP SEPARATE FROM SECRET:
+#   Separation of concerns. ConfigMap values are visible with kubectl describe.
+#   Secret values are redacted. This makes debugging easier — you can check
+#   ConfigMap values without worrying about exposing credentials.
+#
+# HOW PODS USE THIS:
+#   The Deployment spec references this ConfigMap via envFrom.
+#   Every key becomes an environment variable inside the container.
+#   PHP reads them with getenv('DB_HOST'), getenv('REDIS_HOST'), etc.
+#   These are the same getenv() calls you set up in connection.php in Phase 1.
+#
+# UPDATE AFTER TERRAFORM APPLY:
+#   Replace the placeholder values below with real outputs from:
+#     terraform output rds_endpoint
+#     terraform output redis_endpoint
+#     terraform output s3_bucket_name
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: hospital
+data:
+  # Database — DB_HOST comes from terraform output rds_endpoint
+  # DB_USER and DB_PASS come from the ExternalSecret (db-credentials)
+  DB_HOST: "hospital-devops-mysql.c2vc2meieh1k.us-east-1.rds.amazonaws.com"   # e.g. hospital-devops-mysql.abc123.us-east-1.rds.amazonaws.com
+  DB_NAME: "hospital"
+
+  # Redis — PHP sessions stored here (php-sessions.ini reads REDIS_HOST)
+  REDIS_HOST: "hospital-devops-redis.6tqx1p.0001.use1.cache.amazonaws.com"   # e.g. hospital-devops-redis.abc123.cfg.use1.cache.amazonaws.com
+  REDIS_PORT: "6379"
+
+  # S3 — used by report_upload.php for PDF storage
+  S3_BUCKET: "hospital-devops-reports-24135e6e"
+  AWS_REGION: "us-east-1"
+
+  # Application
+  APP_ENV: "production"

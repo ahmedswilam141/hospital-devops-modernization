@@ -1,0 +1,27 @@
+# =============================================================================
+# k8s/namespaces/hospital.yaml
+#
+# WHAT THIS IS:
+#   A Kubernetes Namespace — a logical boundary that groups all resources
+#   for this application. Every pod, service, configmap, and secret for
+#   the hospital app lives in the "hospital" namespace.
+#
+# WHY NAMESPACES:
+#   Without a namespace everything goes into "default" — shared with
+#   system workloads. A dedicated namespace means:
+#   - kubectl get pods -n hospital shows only YOUR pods
+#   - Resource quotas can be applied per namespace
+#   - RBAC (role-based access) can be scoped to a namespace
+#   - kubectl delete namespace hospital removes the entire app cleanly
+#
+# APPLY:
+#   kubectl apply -f k8s/namespaces/hospital.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hospital
+  labels:
+    app: hospital-management-system
+    managed-by: kubectl
