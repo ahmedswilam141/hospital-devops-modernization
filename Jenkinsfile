@@ -34,7 +34,6 @@ pipeline {
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))  // keep last 10 builds
         timeout(time: 30, unit: 'MINUTES')              // kill if hung
-        timestamps()                                     // prefix logs with time
     }
 
     stages {
