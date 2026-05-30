@@ -1,0 +1,87 @@
+# =============================================================================
+# .github/workflows/pr-validation.yml
+#
+# WHAT THIS DOES:
+#   Runs on every Pull Request to main. Fast checks that catch issues before
+#   they reach Jenkins (which does the full build + deploy).
+#
+# STAGES:
+#   1. trivy-scan    — filesystem CVE scan
+#   2. build-test    — docker build (no push) to catch Dockerfile errors
+#   3. manifest-lint — kubectl dry-run to catch K8s YAML errors
+# =============================================================================
+
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # JOB 1 — Trivy filesystem scan
+  # ---------------------------------------------------------------------------
+  trivy-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          format: 'table'
+          exit-code: '0'   # warn only on PRs — don't block merges for HIGH
+
+  # ---------------------------------------------------------------------------
+  # JOB 2 — Docker build test (no push)
+  # Catches Dockerfile errors and broken COPY paths before Jenkins
+  # ---------------------------------------------------------------------------
+  build-test:
+    name: Docker Build Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build frontend image
+        run: |
+          docker build \
+            -t hospital-devops-frontend:test \
+            -f docker/Dockerfile.frontend .
+
+      - name: Build backend image
+        run: |
+          docker build \
+            -t hospital-devops-backend:test \
+            -f docker/Dockerfile.backend .
+
+  # ---------------------------------------------------------------------------
+  # JOB 3 — Kubernetes manifest validation
+  # kubectl dry-run catches YAML errors without touching the real cluster
+  # ---------------------------------------------------------------------------
+  manifest-lint:
+    name: K8s Manifest Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: 'v1.31.0'
+
+      - name: Validate manifests (dry-run client side)
+        run: |
+          kubectl apply --dry-run=client -f k8s/namespaces/
+          kubectl apply --dry-run=client -f k8s/frontend/
+          kubectl apply --dry-run=client -f k8s/backend/
+          kubectl apply --dry-run=client -f k8s/nginx/
