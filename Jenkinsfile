@@ -11,11 +11,11 @@ spec:
     image: jenkins/inbound-agent:latest
     resources:
       requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
         cpu: 200m
         memory: 256Mi
-      limits:
-        cpu: 500m
-        memory: 512Mi
   - name: tools
     image: 092304626836.dkr.ecr.us-east-1.amazonaws.com/hospital-devops-jenkins-agent:latest
     imagePullPolicy: Always
@@ -28,11 +28,11 @@ spec:
       value: tcp://localhost:2375
     resources:
       requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
         cpu: 500m
         memory: 512Mi
-      limits:
-        cpu: 1000m
-        memory: 1Gi
   - name: dind
     image: docker:24-dind
     securityContext:
@@ -42,11 +42,11 @@ spec:
       value: ""
     resources:
       requests:
-        cpu: 200m
-        memory: 256Mi
+        cpu: 100m
+        memory: 128Mi
       limits:
-        cpu: 500m
-        memory: 512Mi
+        cpu: 300m
+        memory: 384Mi
 '''
         }
     }
