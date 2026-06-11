@@ -162,7 +162,15 @@ spec:
         stage('Deploy to EKS') {
             steps {
                 container('tools') {
-                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                    withCredentials([
+                        file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG'),
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding',
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
+                    ]) {
                         sh '''
                             kubectl cluster-info
                             kubectl rollout restart deployment/frontend -n ${K8S_NAMESPACE}
@@ -179,7 +187,15 @@ spec:
         stage('Verify') {
             steps {
                 container('tools') {
-                    withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+                    withCredentials([
+                        file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG'),
+                        [
+                            $class: 'AmazonWebServicesCredentialsBinding',
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        ]
+                    ]) {
                         sh '''
                             echo "=== Pod Status ==="
                             kubectl get pods -n ${K8S_NAMESPACE}
