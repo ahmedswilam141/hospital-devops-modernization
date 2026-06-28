@@ -1,1 +1,0 @@
-# The s3 module call in main.tf needs eks_node_role_name added

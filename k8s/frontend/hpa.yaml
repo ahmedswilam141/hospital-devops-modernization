@@ -1,0 +1,47 @@
+# =============================================================================
+# k8s/frontend/hpa.yaml
+#
+# WHAT THIS IS:
+#   Horizontal Pod Autoscaler. Watches CPU usage across all frontend pods.
+#   When average CPU exceeds 70%, it adds another pod (up to 5 max).
+#   When load drops, it scales back down (min 2 pods always running).
+#
+# WHY THIS MATTERS FOR YOUR RESUME:
+#   This is the answer to "how would you scale this 10x?".
+#   EKS + HPA = the app scales automatically under load without any human action.
+#   Sessions in Redis mean every new pod is immediately ready to serve users.
+#
+# HOW TO TEST IT:
+#   kubectl run -i --tty load-generator --rm --image=busybox \
+#     --restart=Never -n hospital -- /bin/sh -c \
+#     "while sleep 0.01; do wget -q -O- http://frontend/; done"
+#   Then watch: kubectl get hpa -n hospital -w
+# =============================================================================
+
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa
+  namespace: hospital
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+
+  minReplicas: 2   # always keep 2 running — one per AZ
+  maxReplicas: 5   # scale up to 5 under load
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70   # scale out when any pod exceeds 70% CPU
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 60    # wait 60s before scaling up again
+    scaleDown:
+      stabilizationWindowSeconds: 300   # wait 5min before scaling down — avoids flapping

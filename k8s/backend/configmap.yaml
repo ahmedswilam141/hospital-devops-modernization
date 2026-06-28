@@ -1,0 +1,17 @@
+# =============================================================================
+# k8s/backend/configmap.yaml
+# =============================================================================
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: hospital
+data:
+  DB_HOST:    "hospital-devops-mysql.c2vc2meieh1k.us-east-1.rds.amazonaws.com"
+  DB_NAME:    "hospital"
+  REDIS_HOST: "hospital-devops-redis.6tqx1p.0001.use1.cache.amazonaws.com"
+  REDIS_PORT: "6379"
+  S3_BUCKET:  "hospital-devops-reports-24135e6e"
+  AWS_REGION: "us-east-1"
+  APP_ENV:    "production"
