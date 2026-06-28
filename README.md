@@ -10,7 +10,7 @@ Built solo as a DevOps Engineering capstone project — Digilians Program, Softw
 
 ## What This Project Is
 
-This repository documents the transformation of a single-server PHP application — running manually, with no automation, no fault tolerance, and no observability — into a fully containerized, orchestrated, and continuously delivered system on Amazon EKS.
+This repository documents the transformation of a single-server PHP application — running manually, with no automation, no fault tolerance, and no observability — into a fully containerized, orchestrated, continuously-delivered system, designed to run on Amazon EKS.
 
 The application logic (patient records, appointments, doctor management, medical reports) is the **original legacy codebase**, preserved as-is. Every change in this repository is at the **infrastructure and operations layer** — this is a "lift and modernize" project, not a rewrite.
 
@@ -36,6 +36,14 @@ The application logic (patient records, appointments, doctor management, medical
 | Password hashing | 📋 **Planned** | Legacy app stores passwords in plaintext — known gap, not yet fixed |
 
 This table is the single source of truth for project status. If a feature isn't marked ✅ Done, it is not running in production — and that's stated here on purpose rather than implied otherwise.
+
+> **Note on current cluster state:** the EKS cluster is **destroyed between active work sessions** to
+> avoid ongoing AWS charges — a deliberate cost-management decision, not an oversight. All
+> infrastructure is fully defined in Terraform (`terraform/`) and is rebuilt with a single
+> `terraform apply` whenever the project is actively being run or demonstrated. The CI pipeline's
+> `manifest-lint` job validates Kubernetes YAML correctness offline and works regardless of whether
+> the cluster is up; Jenkins Stage 5 (`Deploy to EKS`) requires the cluster to actually be running, by
+> design — that's a live deployment step, not a static check.
 
 ---
 
@@ -173,7 +181,7 @@ Jenkins runs each pipeline as a temporary Kubernetes pod with three containers: 
 - **EKS over ECS** — Kubernetes skills and manifests are portable across any cloud provider.
 - **Jenkins *and* GitHub Actions** — GitHub Actions gives fast, free pre-merge feedback; Jenkins runs the authoritative post-merge deploy inside the cluster's own trust boundary.
 - **Redis for PHP sessions** — `php-sessions.ini` redirects session storage to ElastiCache with zero application code changes, which is what makes running multiple frontend/backend replicas possible at all.
-- **IRSA over static AWS keys** — every pod authenticates to AWS using short-lived, auto-rotated IAM tokens via OIDC. There are no `AWS_ACCESS_KEY_ID` values anywhere in this repository or the running cluster.
+- **IRSA over static AWS keys** — every pod authenticates to AWS using short-lived, auto-rotated IAM tokens via OIDC, when the cluster is running. There are no `AWS_ACCESS_KEY_ID` values anywhere in this repository or in any Kubernetes manifest.
 - **Terraform remote state (S3 + DynamoDB)** — infrastructure is reproducible from any machine, with locking to prevent concurrent-apply corruption.
 
 ---

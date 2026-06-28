@@ -8,7 +8,7 @@
 # STAGES:
 #   1. trivy-scan    — filesystem CVE scan
 #   2. build-test    — docker build (no push) to catch Dockerfile errors
-#   3. manifest-lint — kubectl dry-run to catch K8s YAML errors
+#   3. manifest-lint — kubeconform offline schema validation (no cluster needed)
 # =============================================================================
 
 name: PR Validation
@@ -65,7 +65,19 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # JOB 3 — Kubernetes manifest validation
-  # kubectl dry-run catches YAML errors without touching the real cluster
+  #
+  # Uses kubeconform — an offline Kubernetes manifest validator that checks
+  # YAML against the real Kubernetes OpenAPI schemas WITHOUT needing a live
+  # cluster. This intentionally replaces `kubectl apply --dry-run=client`,
+  # which (despite the name) still tries to contact a real API server for
+  # parts of its validation — something that doesn't exist on a GitHub
+  # Actions runner, and which previously caused this job to fail with
+  # "connection refused" errors that had nothing to do with the YAML itself.
+  #
+  # -ignore-missing-schemas: the External Secrets Operator custom resources
+  #   (SecretStore, ExternalSecret in k8s/secrets/) are CRDs, not built-in
+  #   Kubernetes types, so kubeconform has no schema for them by default.
+  #   This flag skips those two gracefully instead of failing on them.
   # ---------------------------------------------------------------------------
   manifest-lint:
     name: K8s Manifest Validation
@@ -74,14 +86,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install kubectl
-        uses: azure/setup-kubectl@v3
-        with:
-          version: 'v1.31.0'
-
-      - name: Validate manifests (dry-run client side)
+      - name: Install kubeconform
         run: |
-          kubectl apply --dry-run=client --validate=false -f k8s/namespaces/
-          kubectl apply --dry-run=client --validate=false -f k8s/frontend/
-          kubectl apply --dry-run=client --validate=false -f k8s/backend/
-          kubectl apply --dry-run=client --validate=false -f k8s/nginx/
+          curl -sSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate manifests (offline schema check — no cluster needed)
+        run: |
+          kubeconform \
+            -strict \
+            -summary \
+            -ignore-missing-schemas \
+            -kubernetes-version 1.31.0 \
+            k8s/namespaces/*.yaml \
+            k8s/frontend/*.yaml \
+            k8s/backend/*.yaml \
+            k8s/nginx/*.yaml \
+            k8s/redis/*.yaml \
+            k8s/secrets/*.yaml
