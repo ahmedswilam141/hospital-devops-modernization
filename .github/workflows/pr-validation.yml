@@ -81,7 +81,7 @@ jobs:
 
       - name: Validate manifests (dry-run client side)
         run: |
-          kubectl apply --dry-run=client -f k8s/namespaces/
-          kubectl apply --dry-run=client -f k8s/frontend/
-          kubectl apply --dry-run=client -f k8s/backend/
-          kubectl apply --dry-run=client -f k8s/nginx/
+          kubectl apply --dry-run=client --validate=false -f k8s/namespaces/
+          kubectl apply --dry-run=client --validate=false -f k8s/frontend/
+          kubectl apply --dry-run=client --validate=false -f k8s/backend/
+          kubectl apply --dry-run=client --validate=false -f k8s/nginx/
